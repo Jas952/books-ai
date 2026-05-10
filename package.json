@@ -1,0 +1,77 @@
+{
+  "name": "books-agent",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "com.dmitriy.booksagent",
+    "productName": "Books Agent",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "OWNER",
+        "repo": "books_ai"
+      }
+    ],
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/image.icns"
+    },
+    "directories": {
+      "output": "release"
+    },
+    "extraResources": [
+      {
+        "from": "books",
+        "to": "books",
+        "filter": [
+          "**/*.pdf"
+        ]
+      }
+    ],
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/**/*"
+    ]
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:electron": "concurrently \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
+    "build:vite": "vite build",
+    "build:mac": "npm run build:vite && electron-builder --mac",
+    "release": "npm run build:vite && electron-builder --mac --publish always",
+    "version:patch": "npm version patch --no-git-tag-version && npm run release",
+    "version:minor": "npm version minor --no-git-tag-version && npm run release",
+    "version:major": "npm version major --no-git-tag-version && npm run release",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2",
+    "lucide-react": "^1.14.0",
+    "pdfjs-dist": "^5.7.284",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "react-pdf-highlighter": "^8.0.0-rc.0",
+    "react-resizable-panels": "^4.11.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "@vitejs/plugin-react": "^4.3.3",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^31.0.0",
+    "electron-builder": "^26.8.1",
+    "eslint": "^9.13.0",
+    "eslint-plugin-react": "^7.37.2",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.14",
+    "globals": "^15.11.0",
+    "vite": "^5.4.10",
+    "wait-on": "^9.0.5"
+  }
+}

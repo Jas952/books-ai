@@ -1,0 +1,226 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
+:root {
+  --color-bg: #FFFFFF;
+  --color-surface: #F9FAFB;
+  --color-border: #E5E7EB;
+  --color-text: #111827;
+  --color-text-light: #6B7280;
+  
+  /* Golang Theme Colors */
+  --color-go-blue: #00ADD8;
+  --color-go-blue-hover: #0099BE;
+  --color-go-blue-light: rgba(0, 173, 216, 0.15);
+  
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.theme-dark {
+  --color-bg: #0A0A0A;
+  --color-surface: #141414;
+  --color-border: #2A2A2A;
+  --color-text: #F0F0F0;
+  --color-text-light: #8A8A8A;
+  --color-go-blue: #00ADD8;
+  --color-go-blue-hover: #33C4E5;
+  --color-go-blue-light: rgba(0, 173, 216, 0.12);
+}
+
+/* Auto-hide panels */
+.overlay-panel {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+.overlay-panel.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-family);
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  overflow: hidden;
+}
+
+.app-container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+}
+
+.pdf-pane {
+  flex: 1;
+  height: 100%;
+  position: relative;
+  background-color: var(--color-surface);
+}
+
+.sidebar-pane {
+  width: 100%;
+  height: 100%;
+  min-width: 320px;
+  background-color: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Resize Handle */
+.resize-handle {
+  width: 8px;
+  background-color: var(--color-bg);
+  cursor: col-resize;
+  border-left: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border);
+  transition: background-color 0.2s;
+  flex-shrink: 0;
+}
+
+.resize-handle:hover,
+.resize-handle[data-resize-handle-state="drag"] {
+  background-color: var(--color-go-blue-light);
+}
+
+/* Markdown Styles */
+.markdown-body {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.markdown-body p { margin-bottom: 8px; }
+.markdown-body pre {
+  background-color: rgba(0,0,0,0.8);
+  color: #fff;
+  padding: 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin-bottom: 8px;
+  font-family: monospace;
+}
+.markdown-body code {
+  background-color: rgba(0,0,0,0.1);
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-family: monospace;
+}
+.markdown-body pre code {
+  background-color: transparent;
+  padding: 0;
+}
+.markdown-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 8px;
+}
+.markdown-body th, .markdown-body td {
+  border: 1px solid var(--color-border);
+  padding: 6px;
+}
+.markdown-body th {
+  background-color: rgba(0,0,0,0.05);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-light);
+}
+
+/* Highlighting styles override to use Go color */
+.Highlight__part {
+  background-color: var(--color-go-blue-light) !important;
+  border-bottom: 2px solid var(--color-go-blue) !important;
+}
+
+.button-primary {
+  background-color: var(--color-go-blue);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.button-primary:hover {
+  background-color: var(--color-go-blue-hover);
+}
+
+.button-icon {
+  background: transparent;
+  color: var(--color-text-light);
+  border: none;
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.button-icon:hover {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+}
+
+.input-field {
+  width: 100%;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  padding: 12px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.input-field:focus {
+  border-color: var(--color-go-blue);
+}
+
+/* PDF text layer: improve code block selection */
+.textLayer {
+  user-select: text !important;
+}
+.textLayer span {
+  user-select: text !important;
+  pointer-events: all !important;
+}
+.textLayer br {
+  user-select: text !important;
+}
+
+/* Popup animation */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
