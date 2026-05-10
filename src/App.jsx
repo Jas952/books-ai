@@ -10,7 +10,7 @@ const electron = typeof window !== 'undefined' && window.require ? window.requir
 const ipcRenderer = electron ? electron.ipcRenderer : null;
 
 function App() {
-  const [currentHighlight, setCurrentHighlight] = useState(null);
+  const [highlights, setHighlights] = useState([]);
   const [selectedText, setSelectedText] = useState('');
   const [pdfBuffer, setPdfBuffer] = useState(null);
   const [pdfDocument, setPdfDocument] = useState(null);
@@ -25,6 +25,7 @@ function App() {
   const scrollToDestRef = useRef(null);
   const idleTimeoutRef = useRef(null);
   const isHoveringRef = useRef(false);
+  const sidebarRef = useRef(null);
 
   useEffect(() => {
     if (theme === 'dark') {
@@ -50,7 +51,7 @@ function App() {
     return () => clearTimeout(idleTimeoutRef.current);
   }, [resetIdleTimer]);
 
-  // Sidebar min 320px (computed as %) 
+  // Sidebar min 320px (computed as %)
   useEffect(() => {
     const handleResize = () => {
       const minPercentage = (320 / window.innerWidth) * 100;
@@ -92,31 +93,32 @@ function App() {
         };
         reader.readAsArrayBuffer(file);
       }
-      setCurrentHighlight(null);
+      setHighlights([]);
       setSelectedText('');
     } catch (err) {
       alert('Failed to load file: ' + err.message);
     }
   };
 
-  const handleReplaceSelection = useCallback((highlight) => {
-    setCurrentHighlight(highlight);
-    setSelectedText(highlight.content?.text || '');
+  // Color highlight — save to persistent array
+  const handleColorHighlight = useCallback((highlight) => {
+    setHighlights(prev => [...prev, highlight]);
   }, []);
 
-  const handleAddToSelection = useCallback((highlight) => {
-    setCurrentHighlight(highlight);
-    const newText = highlight.content?.text || '';
-    setSelectedText(prev => prev ? `${prev}\n\n${newText}` : newText);
+  // Ask AI — set selected text and focus chat
+  const handleAskAI = useCallback((highlight) => {
+    const text = highlight.content?.text || '';
+    setSelectedText(text);
+    // Also add as a blue highlight for visual reference
+    setHighlights(prev => [...prev, { ...highlight, color: 'blue' }]);
   }, []);
 
   const handleClearVisualHighlight = useCallback(() => {
-    setCurrentHighlight(null);
+    // Double-click clears only selection, not persistent highlights
   }, []);
 
   const handleClearSelectedText = useCallback(() => {
     setSelectedText('');
-    setCurrentHighlight(null);
   }, []);
 
   const handleTocNavigate = useCallback((dest) => {
@@ -244,7 +246,7 @@ function App() {
               onClose={() => setIsLibraryOpen(false)}
               onSelectBook={(buffer) => {
                 setPdfBuffer(buffer);
-                setCurrentHighlight(null);
+                setHighlights([]);
                 setSelectedText('');
               }}
             />
@@ -252,10 +254,10 @@ function App() {
             {pdfBuffer ? (
               <PdfViewer
                 pdfBuffer={pdfBuffer}
-                currentHighlight={currentHighlight}
+                highlights={highlights}
                 selectedText={selectedText}
-                onAddToSelection={handleAddToSelection}
-                onReplaceSelection={handleReplaceSelection}
+                onColorHighlight={handleColorHighlight}
+                onAskAI={handleAskAI}
                 onClearVisualHighlight={handleClearVisualHighlight}
                 toolMode={toolMode}
                 onPdfDocumentReady={setPdfDocument}
@@ -274,6 +276,7 @@ function App() {
 
         <Panel defaultSize={35} minSize={sidebarMinSize}>
           <Sidebar
+            ref={sidebarRef}
             selectedText={selectedText}
             onClearSelectedText={handleClearSelectedText}
           />

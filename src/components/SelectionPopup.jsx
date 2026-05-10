@@ -1,67 +1,84 @@
 import React from 'react';
-import { Plus, Replace } from 'lucide-react';
+import { MessageSquare } from 'lucide-react';
 
-export default function SelectionPopup({ content, onAdd, onReplace, hasExisting }) {
+const COLORS = [
+  { name: 'yellow', hex: '#FFEB3B' },
+  { name: 'green', hex: '#4CAF50' },
+  { name: 'blue', hex: '#2196F3' },
+  { name: 'red', hex: '#F44336' },
+  { name: 'purple', hex: '#9C27B0' },
+];
+
+export default function SelectionPopup({ content, onColorSelect, onAskAI, hasExisting }) {
   return (
     <div style={{
       display: 'flex',
-      gap: '6px',
-      padding: '8px',
+      alignItems: 'center',
+      gap: '8px',
+      padding: '8px 10px',
       backgroundColor: 'var(--color-bg)',
-      borderRadius: '8px',
+      borderRadius: '10px',
       border: '1px solid var(--color-border)',
       boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
       zIndex: 100,
       animation: 'fadeIn 0.15s ease'
     }}>
-      {hasExisting && (
+      {/* Color circles */}
+      {COLORS.map(c => (
         <button
+          key={c.name}
+          title={`Highlight ${c.name}`}
+          onClick={() => onColorSelect(c.name)}
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '6px 12px',
-            fontSize: '13px',
-            fontWeight: 500,
-            backgroundColor: 'var(--color-surface)',
-            border: '1px solid var(--color-border)',
-            borderRadius: '6px',
+            width: '22px',
+            height: '22px',
+            borderRadius: '50%',
+            backgroundColor: c.hex,
+            border: '2px solid transparent',
             cursor: 'pointer',
-            color: 'var(--color-text)',
             transition: 'all 0.15s ease',
-            fontFamily: 'inherit'
+            flexShrink: 0,
+            padding: 0
           }}
-          onClick={onAdd}
           onMouseEnter={e => {
-            e.currentTarget.style.borderColor = 'var(--color-go-blue)';
-            e.currentTarget.style.color = 'var(--color-go-blue)';
+            e.currentTarget.style.transform = 'scale(1.25)';
+            e.currentTarget.style.borderColor = 'var(--color-text)';
           }}
           onMouseLeave={e => {
-            e.currentTarget.style.borderColor = 'var(--color-border)';
-            e.currentTarget.style.color = 'var(--color-text)';
+            e.currentTarget.style.transform = 'scale(1)';
+            e.currentTarget.style.borderColor = 'transparent';
           }}
-        >
-          <Plus size={14} />
-          Add to selection
-        </button>
-      )}
+        />
+      ))}
+
+      {/* Divider */}
+      <div style={{
+        width: '1px',
+        height: '20px',
+        backgroundColor: 'var(--color-border)',
+        flexShrink: 0
+      }} />
+
+      {/* Ask AI button */}
       <button
+        onClick={onAskAI}
+        title="Ask AI about this text"
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '6px',
-          padding: '6px 12px',
-          fontSize: '13px',
-          fontWeight: 500,
+          gap: '5px',
+          padding: '4px 10px',
+          fontSize: '12px',
+          fontWeight: 600,
           backgroundColor: 'var(--color-go-blue)',
           border: 'none',
           borderRadius: '6px',
           cursor: 'pointer',
           color: 'white',
           transition: 'all 0.15s ease',
-          fontFamily: 'inherit'
+          fontFamily: 'inherit',
+          whiteSpace: 'nowrap'
         }}
-        onClick={onReplace}
         onMouseEnter={e => {
           e.currentTarget.style.backgroundColor = 'var(--color-go-blue-hover)';
         }}
@@ -69,8 +86,8 @@ export default function SelectionPopup({ content, onAdd, onReplace, hasExisting 
           e.currentTarget.style.backgroundColor = 'var(--color-go-blue)';
         }}
       >
-        {hasExisting ? <Replace size={14} /> : null}
-        {hasExisting ? 'Replace selection' : 'Select text'}
+        <MessageSquare size={13} />
+        Ask AI
       </button>
     </div>
   );

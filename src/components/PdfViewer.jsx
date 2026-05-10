@@ -9,12 +9,20 @@ import SelectionPopup from './SelectionPopup';
 
 GlobalWorkerOptions.workerSrc = './pdf.worker.min.js';
 
+const HIGHLIGHT_COLORS = {
+  yellow: 'rgba(255, 235, 59, 0.35)',
+  green: 'rgba(76, 175, 80, 0.35)',
+  blue: 'rgba(33, 150, 243, 0.35)',
+  red: 'rgba(244, 67, 54, 0.30)',
+  purple: 'rgba(156, 39, 176, 0.30)',
+};
+
 const PdfViewer = React.memo(function PdfViewer({
   pdfBuffer,
-  currentHighlight,
+  highlights,
   selectedText,
-  onAddToSelection,
-  onReplaceSelection,
+  onColorHighlight,
+  onAskAI,
   onClearVisualHighlight,
   toolMode,
   onPdfDocumentReady,
@@ -28,6 +36,7 @@ const PdfViewer = React.memo(function PdfViewer({
   const highlighterRef = useRef(null);
   const containerRef = useRef(null);
   const scaleValueRef = useRef(pdfScaleValue);
+  const rafIdRef = useRef(null);
 
   useEffect(() => {
     if (!pdfBuffer) return;
@@ -65,43 +74,35 @@ const PdfViewer = React.memo(function PdfViewer({
     scaleValueRef.current = pdfScaleValue;
   }, [pdfScaleValue]);
 
-  // Workaround: toggle to 'page-actual' first to force pdf.js recalculation
+  // Apply scale directly — single call, no intermediate value
   const applyScale = useCallback((scaleVal) => {
     if (!highlighterRef.current || !highlighterRef.current.viewer) return;
     const viewer = highlighterRef.current.viewer;
-
-    if (scaleVal === 'auto' || scaleVal === 'page-width' || scaleVal === 'page-fit') {
-      viewer.currentScaleValue = 'page-actual';
-      requestAnimationFrame(() => {
-        if (highlighterRef.current && highlighterRef.current.viewer) {
-          highlighterRef.current.viewer.currentScaleValue = scaleVal;
-        }
-      });
-    } else {
-      viewer.currentScaleValue = scaleVal;
-    }
+    viewer.currentScaleValue = scaleVal;
   }, []);
 
   useEffect(() => {
     applyScale(pdfScaleValue);
   }, [pdfScaleValue, applyScale]);
 
-  // ResizeObserver: re-apply scale on container resize
+  // rAF-throttled ResizeObserver for smooth rescaling during drag
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    let debounceTimer;
+    let pending = false;
     const observer = new ResizeObserver(() => {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
+      if (pending) return;
+      pending = true;
+      rafIdRef.current = requestAnimationFrame(() => {
+        pending = false;
         applyScale(scaleValueRef.current);
-      }, 50);
+      });
     });
     observer.observe(container);
     return () => {
       observer.disconnect();
-      clearTimeout(debounceTimer);
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
     };
   }, [pdfDocument, applyScale]);
 
@@ -140,8 +141,6 @@ const PdfViewer = React.memo(function PdfViewer({
       onClearVisualHighlight();
     }
   }, [onClearVisualHighlight]);
-
-  const highlights = currentHighlight ? [currentHighlight] : [];
 
   if (loading) {
     return (
@@ -185,12 +184,12 @@ const PdfViewer = React.memo(function PdfViewer({
               <SelectionPopup
                 content={content}
                 hasExisting={hasExisting}
-                onAdd={() => {
-                  onAddToSelection(newHighlight);
+                onColorSelect={(color) => {
+                  onColorHighlight({ ...newHighlight, color });
                   hideTipAndSelection();
                 }}
-                onReplace={() => {
-                  onReplaceSelection(newHighlight);
+                onAskAI={() => {
+                  onAskAI(newHighlight);
                   hideTipAndSelection();
                 }}
               />
@@ -198,12 +197,16 @@ const PdfViewer = React.memo(function PdfViewer({
           }}
           highlightTransform={(highlight, index, setTip, hideTip, viewportToScaled, screenshot, isScrolledTo) => {
             if (highlight.id === '__nav__') return null;
+            const color = HIGHLIGHT_COLORS[highlight.color] || HIGHLIGHT_COLORS.yellow;
             return (
               <Highlight
-                key={index}
+                key={highlight.id || index}
                 isScrolledTo={isScrolledTo}
                 position={highlight.position}
                 comment={highlight.comment}
+                style={{
+                  background: color
+                }}
               />
             );
           }}
