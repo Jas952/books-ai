@@ -2,8 +2,60 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
+const fsp = require('fs/promises');
+const { spawn } = require('child_process');
 const isDev = !app.isPackaged;
 const iconPath = path.resolve(__dirname, '..', 'assets', 'image.icns');
+
+let aiServerProcess = null;
+
+function startAIServer() {
+  const projectRoot = path.resolve(__dirname, '..');
+
+  // В dev — запускаем через `go run`, в prod — ищем бинарник
+  let command, args, cwd;
+
+  if (isDev) {
+    command = 'go';
+    args = ['run', '.'];
+    cwd = path.join(projectRoot, 'src', 'ai', 'main');
+  } else {
+    // В production бинарник должен лежать рядом с app в resources
+    const binaryName = process.platform === 'win32' ? 'ai-server.exe' : 'ai-server';
+    command = path.join(process.resourcesPath, binaryName);
+    args = [];
+    cwd = process.resourcesPath;
+  }
+
+  console.log(`[AI Server] Запускаю: ${command} ${args.join(' ')} (cwd: ${cwd})`);
+
+  aiServerProcess = spawn(command, args, {
+    cwd,
+    env: { ...process.env },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  aiServerProcess.stdout.on('data', (data) => {
+    console.log(`[AI Server] ${data.toString().trim()}`);
+  });
+
+  aiServerProcess.stderr.on('data', (data) => {
+    console.error(`[AI Server ERR] ${data.toString().trim()}`);
+  });
+
+  aiServerProcess.on('exit', (code) => {
+    console.log(`[AI Server] Завершён с кодом ${code}`);
+    aiServerProcess = null;
+  });
+}
+
+function stopAIServer() {
+  if (aiServerProcess) {
+    console.log('[AI Server] Останавливаю...');
+    aiServerProcess.kill();
+    aiServerProcess = null;
+  }
+}
 
 function getBooksPath() {
   if (isDev) {
@@ -18,12 +70,18 @@ function setupAutoUpdater(win) {
 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoRunAppAfterInstall = true;
 
   autoUpdater.on('update-available', (info) => {
-    win.webContents.send('update-status', `Доступно обновление: v${info.version}. Загрузка...`);
+    win.webContents.send('update-status', `Доступно обновление: v${info.version}`);
+  });
+
+  autoUpdater.on('download-progress', (progressObj) => {
+    win.webContents.send('update-status', `Загрузка: ${Math.round(progressObj.percent)}%`);
   });
 
   autoUpdater.on('update-downloaded', (info) => {
+    win.webContents.send('update-status', 'Готово! Перезапустите приложение.');
     dialog.showMessageBox(win, {
       type: 'info',
       title: 'Обновление готово',
@@ -31,13 +89,31 @@ function setupAutoUpdater(win) {
       buttons: ['Перезапустить', 'Позже']
     }).then((result) => {
       if (result.response === 0) {
-        autoUpdater.quitAndInstall();
+        // On macOS, updates may fail silently if app is started from DMG.
+        if (process.platform === 'darwin' && !app.isInApplicationsFolder()) {
+          const moved = app.moveToApplicationsFolder();
+          if (!moved) {
+            dialog.showMessageBox(win, {
+              type: 'warning',
+              title: 'Установите приложение в Applications',
+              message: 'Для автообновления переместите приложение в папку Applications и запустите снова.',
+              buttons: ['Ок']
+            });
+            return;
+          }
+        }
+
+        win.webContents.send('update-status', 'Устанавливаю обновление...');
+        setImmediate(() => {
+          autoUpdater.quitAndInstall(false, true);
+        });
       }
     });
   });
 
   autoUpdater.on('error', (err) => {
     console.error('Auto-update error:', err.message);
+    win.webContents.send('update-status', `Ошибка обновления: ${err.message}`);
   });
 
   autoUpdater.checkForUpdatesAndNotify();
@@ -56,26 +132,6 @@ function createWindow() {
     }
   });
 
-  ipcMain.handle('get-books-path', () => getBooksPath());
-
-  ipcMain.handle('list-books', () => {
-    const booksDir = getBooksPath();
-    if (!fs.existsSync(booksDir)) {
-      fs.mkdirSync(booksDir, { recursive: true });
-    }
-    const files = fs.readdirSync(booksDir);
-    return files
-      .filter(f => f.toLowerCase().endsWith('.pdf'))
-      .map(f => ({ name: f, path: path.join(booksDir, f) }));
-  });
-
-  ipcMain.handle('read-pdf', (event, filePath) => {
-    return fs.readFileSync(filePath);
-  });
-
-  // Версия приложения для отображения в UI
-  ipcMain.handle('get-app-version', () => app.getVersion());
-
   if (isDev) {
     win.loadURL('http://localhost:5173');
     win.webContents.openDevTools();
@@ -86,6 +142,27 @@ function createWindow() {
   setupAutoUpdater(win);
 }
 
+// Регистрируем обработчики IPC только один раз
+ipcMain.handle('get-books-path', () => getBooksPath());
+
+ipcMain.handle('list-books', async () => {
+  const booksDir = getBooksPath();
+  if (!fs.existsSync(booksDir)) {
+    await fsp.mkdir(booksDir, { recursive: true });
+  }
+  const files = await fsp.readdir(booksDir);
+  return files
+    .filter(f => f.toLowerCase().endsWith('.pdf'))
+    .map(f => ({ name: f, path: path.join(booksDir, f) }));
+});
+
+ipcMain.handle('read-pdf', async (event, filePath) => {
+  return fsp.readFile(filePath);
+});
+
+// Версия приложения для отображения в UI
+ipcMain.handle('get-app-version', () => app.getVersion());
+
 app.whenReady().then(() => {
   if (process.platform === 'darwin' && app.dock) {
     try {
@@ -94,6 +171,7 @@ app.whenReady().then(() => {
       console.error('Failed to set dock icon:', err.message);
     }
   }
+  startAIServer();
   createWindow();
 
   app.on('activate', () => {
@@ -107,4 +185,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('before-quit', () => {
+  stopAIServer();
 });

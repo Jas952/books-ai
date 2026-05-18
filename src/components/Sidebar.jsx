@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, Trash2, Plus, MessageSquare, ChevronDown, Archive, Download } from 'lucide-react';
+import { Send, Bot, Trash2, Plus, MessageSquare, ChevronDown, Archive, Download, Loader } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { sendMessage } from '../ai/agent.js';
 
 const createNewSession = () => ({
   id: Date.now().toString(),
@@ -18,6 +19,7 @@ const Sidebar = React.memo(function Sidebar({ selectedText, onClearSelectedText 
   const [question, setQuestion] = useState('');
   const [modelType, setModelType] = useState('local');
   const [showHistory, setShowHistory] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const chatEndRef = useRef(null);
 
   const activeSession = sessions.find(s => s.id === activeSessionId) || sessions[0];
@@ -34,10 +36,12 @@ const Sidebar = React.memo(function Sidebar({ selectedText, onClearSelectedText 
     ));
   };
 
-  const handleSend = () => {
-    if (!question.trim() || !activeSession) return;
+  const handleSend = async () => {
+    if (!question.trim() || !activeSession || isLoading) return;
 
     const userMessage = { role: 'user', text: question, context: selectedText };
+    const currentQuestion = question;
+    const currentContext = selectedText;
 
     // Set title from first message
     updateActiveSession(s => ({
@@ -49,31 +53,25 @@ const Sidebar = React.memo(function Sidebar({ selectedText, onClearSelectedText 
     }));
 
     setQuestion('');
+    setIsLoading(true);
 
-    // TODO: replace with real AI call (see src/ai/agent.js)
-    setTimeout(() => {
+    try {
+      const reply = await sendMessage(currentQuestion, currentContext);
+      updateActiveSession(s => ({
+        ...s,
+        messages: [...s.messages, { role: 'assistant', text: reply }]
+      }));
+    } catch (err) {
       updateActiveSession(s => ({
         ...s,
         messages: [...s.messages, {
           role: 'assistant',
-          text: `Вот пример того, как я умею форматировать текст, используя **Markdown**!
-
-Здесь вы видите код:
-\`\`\`javascript
-function helloWorld() {
-  console.log("Привет от ИИ!");
-}
-\`\`\`
-
-И даже таблицы:
-| Модель | Статус | Описание |
-| --- | --- | --- |
-| Локальная | Активна | Быстрая и приватная |
-| API | Ожидает | Требует интернет |
-`
+          text: `⚠️ **Ошибка:** ${err.message}`
         }]
       }));
-    }, 1000);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleNewChat = () => {
@@ -318,6 +316,30 @@ function helloWorld() {
             )}
           </div>
         ))}
+        {isLoading && (
+          <div style={{
+            alignSelf: 'flex-start',
+            maxWidth: '90%',
+            padding: '12px 16px',
+            borderRadius: '12px',
+            borderBottomLeftRadius: '4px',
+            backgroundColor: 'var(--color-surface)',
+            display: 'flex',
+            gap: '5px',
+            alignItems: 'center'
+          }}>
+            {[0, 1, 2].map(i => (
+              <span key={i} style={{
+                width: '7px',
+                height: '7px',
+                borderRadius: '50%',
+                backgroundColor: 'var(--color-text-light)',
+                display: 'inline-block',
+                animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite`
+              }} />
+            ))}
+          </div>
+        )}
         <div ref={chatEndRef} />
       </div>
 
@@ -329,10 +351,19 @@ function helloWorld() {
           placeholder="Ask about the highlight..."
           value={question}
           onChange={e => setQuestion(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && handleSend()}
+          onKeyDown={e => e.key === 'Enter' && !isLoading && handleSend()}
+          disabled={isLoading}
         />
-        <button className="button-primary" style={{ padding: '12px' }} onClick={handleSend}>
-          <Send size={18} />
+        <button
+          className="button-primary"
+          style={{ padding: '12px', opacity: isLoading ? 0.6 : 1, cursor: isLoading ? 'not-allowed' : 'pointer' }}
+          onClick={handleSend}
+          disabled={isLoading}
+          title={isLoading ? 'Ожидаю ответа...' : 'Отправить'}
+        >
+          {isLoading
+            ? <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} />
+            : <Send size={18} />}
         </button>
       </div>
     </div>

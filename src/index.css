@@ -63,6 +63,15 @@ body {
   background-color: var(--color-surface);
 }
 
+.pdf-resize-preview-layer {
+  transform-origin: top center;
+  will-change: transform;
+}
+
+.pdf-resize-preview-layer.is-resizing {
+  transition: transform 90ms linear;
+}
+
 .sidebar-pane {
   width: 100%;
   height: 100%;
@@ -142,10 +151,14 @@ body {
   background: var(--color-text-light);
 }
 
-/* Highlighting styles override to use Go color */
-.Highlight__part {
-  background-color: var(--color-go-blue-light) !important;
-  border-bottom: 2px solid var(--color-go-blue) !important;
+/* Browser selection style */
+::selection {
+  background-color: var(--color-go-blue-light);
+}
+
+/* Dynamic highlight colors based on user selection */
+.custom-highlight-wrapper .Highlight__part {
+  background-color: var(--highlight-bg) !important;
 }
 
 .button-primary {
@@ -223,4 +236,9 @@ body {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+@keyframes bounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-6px); }
 }
