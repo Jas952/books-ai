@@ -1,7 +1,7 @@
 {
   "name": "books-agent",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.5",
   "type": "module",
   "main": "electron/main.cjs",
   "build": {
@@ -10,12 +10,15 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "OWNER",
-        "repo": "books_ai"
+        "owner": "Jas952",
+        "repo": "books-ai"
       }
     ],
     "mac": {
-      "target": "dmg",
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "assets/image.icns"
     },
     "directories": {
@@ -41,10 +44,10 @@
     "dev:electron": "concurrently \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "build:vite": "vite build",
     "build:mac": "npm run build:vite && electron-builder --mac",
-    "release": "npm run build:vite && electron-builder --mac --publish always",
-    "version:patch": "npm version patch --no-git-tag-version && npm run release",
-    "version:minor": "npm version minor --no-git-tag-version && npm run release",
-    "version:major": "npm version major --no-git-tag-version && npm run release",
+    "release": "npm run build:vite && node scripts/run-release.cjs",
+    "version:patch": "npm version patch --no-git-tag-version --force && npm run build:mac",
+    "version:minor": "npm version minor --no-git-tag-version --force && npm run build:mac",
+    "version:major": "npm version major --no-git-tag-version --force && npm run build:mac",
     "lint": "eslint .",
     "preview": "vite preview"
   },

@@ -107,10 +107,31 @@ function App() {
 
   // Ask AI — set selected text and focus chat
   const handleAskAI = useCallback((highlight) => {
-    const text = highlight.content?.text || '';
+    let text = highlight.content?.text || '';
+    if (highlight.comment && highlight.comment.text) {
+      text = `[Comment: ${highlight.comment.text}]\n${text}`;
+    }
     setSelectedText(text);
     // Also add as a blue highlight for visual reference
     setHighlights(prev => [...prev, { ...highlight, color: 'blue' }]);
+  }, []);
+
+  // Undo highlight (Cmd+Z or Ctrl+Z)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const activeElement = document.activeElement;
+      const isInput = activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA' || activeElement.isContentEditable);
+      
+      if (!isInput && (e.metaKey || e.ctrlKey) && e.key === 'z') {
+        e.preventDefault();
+        setHighlights(prev => {
+          if (prev.length === 0) return prev;
+          return prev.slice(0, -1);
+        });
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   const handleClearVisualHighlight = useCallback(() => {
