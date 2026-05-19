@@ -41,3 +41,7 @@ lerna-debug.log*
 # md
 md
 
+
+# OAuth and debug tokens
+token.json
+gemini_error_dump.json
