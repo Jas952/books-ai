@@ -12,41 +12,69 @@ let aiServerProcess = null;
 function startAIServer() {
   const projectRoot = path.resolve(__dirname, '..');
 
-  // В dev — запускаем через `go run`, в prod — ищем бинарник
-  let command, args, cwd;
+  let command, args, cwd, extraEnv = {};
 
   if (isDev) {
     command = 'go';
     args = ['run', '.'];
     cwd = path.join(projectRoot, 'src', 'ai', 'main');
   } else {
-    // В production бинарник должен лежать рядом с app в resources
+    // В production бинарник должен лежать в Resources/
     const binaryName = process.platform === 'win32' ? 'ai-server.exe' : 'ai-server';
     command = path.join(process.resourcesPath, binaryName);
     args = [];
     cwd = process.resourcesPath;
+
+    // Проверяем что бинарник существует
+    if (!fs.existsSync(command)) {
+      console.warn(`[AI Server] Бинарник не найден: ${command}`);
+      console.warn('[AI Server] AI-чат будет недоступен. Пересоберите приложение с Go-бинарником.');
+      return; // Не крашим приложение, просто чат не работает
+    }
+
+    // Читаем .env из папки ресурсов (будет скопирован при сборке)
+    const envPath = path.join(process.resourcesPath, '.env');
+    if (fs.existsSync(envPath)) {
+      const lines = fs.readFileSync(envPath, 'utf8').split('\n');
+      lines.forEach(line => {
+        const [key, ...vals] = line.replace(/^export\s+/, '').split('=');
+        if (key && vals.length) {
+          extraEnv[key.trim()] = vals.join('=').trim().replace(/^["']|["']$/g, '');
+        }
+      });
+    }
   }
 
   console.log(`[AI Server] Запускаю: ${command} ${args.join(' ')} (cwd: ${cwd})`);
 
-  aiServerProcess = spawn(command, args, {
-    cwd,
-    env: { ...process.env },
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
+  try {
+    aiServerProcess = spawn(command, args, {
+      cwd,
+      env: { ...process.env, ...extraEnv },
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
 
-  aiServerProcess.stdout.on('data', (data) => {
-    console.log(`[AI Server] ${data.toString().trim()}`);
-  });
+    aiServerProcess.stdout.on('data', (data) => {
+      console.log(`[AI Server] ${data.toString().trim()}`);
+    });
 
-  aiServerProcess.stderr.on('data', (data) => {
-    console.error(`[AI Server ERR] ${data.toString().trim()}`);
-  });
+    aiServerProcess.stderr.on('data', (data) => {
+      console.error(`[AI Server ERR] ${data.toString().trim()}`);
+    });
 
-  aiServerProcess.on('exit', (code) => {
-    console.log(`[AI Server] Завершён с кодом ${code}`);
+    aiServerProcess.on('error', (err) => {
+      console.error(`[AI Server] Ошибка запуска: ${err.message}`);
+      aiServerProcess = null;
+    });
+
+    aiServerProcess.on('exit', (code) => {
+      console.log(`[AI Server] Завершён с кодом ${code}`);
+      aiServerProcess = null;
+    });
+  } catch (err) {
+    console.error(`[AI Server] Не удалось запустить: ${err.message}`);
     aiServerProcess = null;
-  });
+  }
 }
 
 function stopAIServer() {

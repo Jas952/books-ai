@@ -45,3 +45,7 @@ md
 # OAuth and debug tokens
 token.json
 gemini_error_dump.json
+
+# Go binary (built before release)
+ai-server
+ai-server.exe
