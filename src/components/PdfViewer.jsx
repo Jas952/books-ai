@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PdfHighlighter, Highlight } from 'react-pdf-highlighter';
 // Use the same pdfjs-dist bundled by react-pdf-highlighter (avoids version mismatch)
-import { GlobalWorkerOptions, getDocument } from 'react-pdf-highlighter/node_modules/pdfjs-dist';
+import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import 'react-pdf-highlighter/dist/style.css';
 
 import ErrorBoundary from './ErrorBoundary';
 import SelectionPopup from './SelectionPopup';
 
-import pdfWorkerUrl from 'react-pdf-highlighter/node_modules/pdfjs-dist/build/pdf.worker.min.js?url';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 const HIGHLIGHT_COLORS = {
