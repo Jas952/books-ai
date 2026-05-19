@@ -81,32 +81,31 @@ function setupAutoUpdater(win) {
   });
 
   autoUpdater.on('update-downloaded', (info) => {
-    win.webContents.send('update-status', 'Готово! Перезапустите приложение.');
+    win.webContents.send('update-status', `✅ v${info.version} скачана — перезапустите`);
     dialog.showMessageBox(win, {
       type: 'info',
-      title: 'Обновление готово',
-      message: `Версия ${info.version} загружена. Перезапустить приложение?`,
-      buttons: ['Перезапустить', 'Позже']
+      title: `Обновление v${info.version} готово`,
+      message: `Новая версия загружена.\n\nНажмите «Установить» — приложение закроется, установите новый DMG и запустите снова.`,
+      buttons: ['Установить', 'Позже'],
+      defaultId: 0
     }).then((result) => {
       if (result.response === 0) {
-        // On macOS, updates may fail silently if app is started from DMG.
-        if (process.platform === 'darwin' && !app.isInApplicationsFolder()) {
-          const moved = app.moveToApplicationsFolder();
-          if (!moved) {
-            dialog.showMessageBox(win, {
-              type: 'warning',
-              title: 'Установите приложение в Applications',
-              message: 'Для автообновления переместите приложение в папку Applications и запустите снова.',
-              buttons: ['Ок']
-            });
-            return;
-          }
+        // На macOS без code signing quitAndInstall не работает —
+        // открываем страницу релиза на GitHub для ручной установки
+        if (process.platform === 'darwin') {
+          const { shell } = require('electron');
+          shell.openExternal('https://github.com/Jas952/books-ai/releases/latest');
+          // Даём секунду чтобы браузер открылся, потом закрываем приложение
+          setTimeout(() => {
+            app.quit();
+          }, 1500);
+        } else {
+          // На Windows/Linux работает нормально
+          win.webContents.send('update-status', 'Устанавливаю обновление...');
+          setImmediate(() => {
+            autoUpdater.quitAndInstall(false, true);
+          });
         }
-
-        win.webContents.send('update-status', 'Устанавливаю обновление...');
-        setImmediate(() => {
-          autoUpdater.quitAndInstall(false, true);
-        });
       }
     });
   });
