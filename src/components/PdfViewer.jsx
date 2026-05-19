@@ -7,8 +7,8 @@ import 'react-pdf-highlighter/dist/style.css';
 import ErrorBoundary from './ErrorBoundary';
 import SelectionPopup from './SelectionPopup';
 
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker';
+GlobalWorkerOptions.workerPort = new PdfWorker();
 
 const HIGHLIGHT_COLORS = {
   yellow: 'rgba(255, 235, 59, 0.35)',
