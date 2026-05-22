@@ -15,7 +15,7 @@ import (
 type RouterRequest struct {
 	Model    string    `json:"model"`
 	Messages []Message `json:"messages"`
-	Stream   bool      `json:"stream"` // 1. ИСПРАВЛЕНО: Добавили поле управления потоком
+	Stream   bool      `json:"stream"` 
 }
 
 type Message struct {
