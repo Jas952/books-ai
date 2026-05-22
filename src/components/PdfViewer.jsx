@@ -1,13 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PdfHighlighter, Highlight } from 'react-pdf-highlighter';
 // Use the same pdfjs-dist bundled by react-pdf-highlighter (avoids version mismatch)
-import { GlobalWorkerOptions, getDocument } from 'react-pdf-highlighter/node_modules/pdfjs-dist';
+import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import 'react-pdf-highlighter/dist/style.css';
 
 import ErrorBoundary from './ErrorBoundary';
 import SelectionPopup from './SelectionPopup';
 
-GlobalWorkerOptions.workerSrc = './pdf.worker.min.js';
+// pdfjs-dist 4.x ships .mjs workers
+const isDev = window.location.protocol === 'http:';
+GlobalWorkerOptions.workerSrc = isDev
+  ? new URL('/pdf.worker.min.mjs', window.location.origin).href
+  : './pdf.worker.min.mjs';
 
 const HIGHLIGHT_COLORS = {
   yellow: 'rgba(255, 235, 59, 0.35)',
@@ -26,37 +30,40 @@ const PdfViewer = React.memo(function PdfViewer({
   onClearVisualHighlight,
   toolMode,
   onPdfDocumentReady,
-  scrollToDestRef,
-  pdfScaleValue = 'auto'
+  tocScrollDest,
+  zoomMultiplier = 1.0,
+  zoomMode = 'width',
+  pageNavigateDest,
+  onPageChange,
+  onHighlightClick
 }) {
   const [pdfDocument, setPdfDocument] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [hoveredHighlightId, setHoveredHighlightId] = useState(null);
-  const prevBufferRef = useRef(null);
   const highlighterRef = useRef(null);
   const previewLayerRef = useRef(null);
   const containerRef = useRef(null);
-  const scaleValueRef = useRef(pdfScaleValue);
+  const scaleValueRef = useRef(zoomMultiplier);
   const rafIdRef = useRef(null);
   const resizeCommitTimerRef = useRef(null);
   const resizeBaseWidthRef = useRef(0);
 
   useEffect(() => {
     if (!pdfBuffer) return;
-    if (prevBufferRef.current === pdfBuffer) return;
-    prevBufferRef.current = pdfBuffer;
 
     setLoading(true);
     setError(null);
 
-    if (pdfDocument) {
-      pdfDocument.destroy();
-    }
-
+    let isCancelled = false;
     const loadingTask = getDocument({ data: pdfBuffer.slice() });
+
     loadingTask.promise
       .then((doc) => {
+        if (isCancelled) {
+          doc.destroy().catch(() => {});
+          return;
+        }
         setPdfDocument(doc);
         setLoading(false);
         if (onPdfDocumentReady) {
@@ -64,30 +71,42 @@ const PdfViewer = React.memo(function PdfViewer({
         }
       })
       .catch((err) => {
+        if (isCancelled) return;
         console.error('[PdfViewer] PDF load error:', err);
         setError(err.message || 'Failed to load PDF');
         setLoading(false);
       });
 
     return () => {
-      loadingTask.destroy();
+      isCancelled = true;
     };
   }, [pdfBuffer]);
 
   useEffect(() => {
-    scaleValueRef.current = pdfScaleValue;
-  }, [pdfScaleValue]);
+    scaleValueRef.current = zoomMultiplier;
+  }, [zoomMultiplier]);
 
-  // Apply scale directly — single call, no intermediate value
-  const applyScale = useCallback((scaleVal) => {
+  // Apply zoom based on multiplier and mode
+  const applyZoom = useCallback(() => {
     if (!highlighterRef.current || !highlighterRef.current.viewer) return;
     const viewer = highlighterRef.current.viewer;
-    viewer.currentScaleValue = scaleVal;
-  }, []);
+    if (zoomMode === 'width') {
+      // First set to page-width, then apply multiplier
+      viewer.currentScaleValue = 'page-width';
+      if (zoomMultiplier !== 1.0) {
+        requestAnimationFrame(() => {
+          const baseScale = viewer.currentScale;
+          viewer.currentScale = baseScale * zoomMultiplier;
+        });
+      }
+    } else {
+      viewer.currentScale = zoomMultiplier;
+    }
+  }, [zoomMultiplier, zoomMode]);
 
   useEffect(() => {
-    applyScale(pdfScaleValue);
-  }, [pdfScaleValue, applyScale]);
+    applyZoom();
+  }, [zoomMultiplier, zoomMode, applyZoom]);
 
   // rAF-throttled ResizeObserver for smooth rescaling during drag
   useEffect(() => {
@@ -121,7 +140,7 @@ const PdfViewer = React.memo(function PdfViewer({
           resizeBaseWidthRef.current = container.clientWidth || width;
           previewLayer.style.transform = 'scale(1)';
           previewLayer.classList.remove('is-resizing');
-          applyScale(scaleValueRef.current);
+          applyZoom();
         }, 110);
       });
     });
@@ -131,18 +150,16 @@ const PdfViewer = React.memo(function PdfViewer({
       if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
       if (resizeCommitTimerRef.current) clearTimeout(resizeCommitTimerRef.current);
     };
-  }, [pdfDocument, applyScale]);
+  }, [pdfDocument, applyZoom]);
 
   // TOC navigation
   useEffect(() => {
-    if (!scrollToDestRef || !scrollToDestRef.current || !pdfDocument) return;
+    if (!tocScrollDest || !tocScrollDest.dest || !pdfDocument) return;
 
-    const dest = scrollToDestRef.current;
-    scrollToDestRef.current = null;
+    const dest = tocScrollDest.dest;
 
     const performScroll = (pageIndex) => {
       if (highlighterRef.current && highlighterRef.current.viewer) {
-        // PDF.js pages are 1-indexed
         highlighterRef.current.viewer.scrollPageIntoView({ pageNumber: pageIndex + 1 });
       }
     };
@@ -156,7 +173,15 @@ const PdfViewer = React.memo(function PdfViewer({
     } else if (Array.isArray(dest)) {
       pdfDocument.getPageIndex(dest[0]).then(performScroll);
     }
-  });
+  }, [tocScrollDest, pdfDocument]);
+
+  // Page navigation
+  useEffect(() => {
+    if (!pageNavigateDest || !pdfDocument) return;
+    if (highlighterRef.current && highlighterRef.current.viewer) {
+      highlighterRef.current.viewer.scrollPageIntoView({ pageNumber: pageNavigateDest.page });
+    }
+  }, [pageNavigateDest, pdfDocument]);
 
   // Double-click empty area → clear highlight
   const handleDoubleClick = useCallback((e) => {
@@ -197,11 +222,11 @@ const PdfViewer = React.memo(function PdfViewer({
       onDoubleClick={handleDoubleClick}
     >
       <ErrorBoundary>
-        <div ref={previewLayerRef} className="pdf-resize-preview-layer">
+        <div ref={previewLayerRef} className="pdf-resize-preview-layer" style={{ height: '100%', width: '100%', transformOrigin: 'top center' }}>
           <PdfHighlighter
             ref={highlighterRef}
             pdfDocument={pdfDocument}
-            pdfScaleValue={pdfScaleValue}
+            pdfScaleValue={zoomMode === 'width' ? 'page-width' : String(zoomMultiplier)}
             enableAreaSelection={event => toolMode === 'area'}
             onScrollChange={() => {}}
             onSelectionFinished={(position, content, hideTipAndSelection, transformSelection) => {
@@ -247,70 +272,16 @@ const PdfViewer = React.memo(function PdfViewer({
                     }
                   }}
                   onMouseLeave={() => setHoveredHighlightId(null)}
+                  onClick={() => {
+                    if (highlight.comment?.text && onHighlightClick) {
+                      onHighlightClick(highlight);
+                    }
+                  }}
                 >
                   <Highlight
                     isScrolledTo={isScrolledTo}
                     position={highlight.position}
                   />
-                  
-                  {isHovered && highlight.comment?.text && (
-                    <div 
-                      style={{
-                        position: 'absolute',
-                        left: highlight.position.boundingRect.left,
-                        top: Math.max(0, highlight.position.boundingRect.top - 45),
-                        zIndex: 1000,
-                        backgroundColor: 'var(--color-bg)',
-                        border: '1px solid var(--color-border)',
-                        borderRadius: '8px',
-                        padding: '6px 10px',
-                        boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '12px',
-                        animation: 'fadeIn 0.15s ease'
-                      }}
-                    >
-                      <span style={{ 
-                        fontSize: '13px', 
-                        color: 'var(--color-text)', 
-                        maxWidth: '200px', 
-                        overflow: 'hidden', 
-                        textOverflow: 'ellipsis', 
-                        whiteSpace: 'nowrap',
-                        fontWeight: 500
-                      }}>
-                        {highlight.comment.text}
-                      </span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onAskAI(highlight);
-                        }}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          padding: '4px 10px',
-                          fontSize: '12px',
-                          fontWeight: 600,
-                          backgroundColor: 'var(--color-go-blue)',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '6px',
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap'
-                        }}
-                        onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--color-go-blue-hover)'}
-                        onMouseLeave={e => e.currentTarget.style.backgroundColor = 'var(--color-go-blue)'}
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                        </svg>
-                        Ask AI
-                      </button>
-                    </div>
-                  )}
                 </div>
               );
             }}

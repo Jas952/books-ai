@@ -3,7 +3,7 @@ import { Panel, Group, Separator } from 'react-resizable-panels';
 import PdfViewer from './components/PdfViewer';
 import Sidebar from './components/Sidebar';
 import Toolbar from './components/Toolbar';
-import { Upload, Library, ZoomIn, ZoomOut, Maximize, Columns } from 'lucide-react';
+import { Upload, Library, ZoomIn, ZoomOut, AlignCenter, MessageSquare, Bot } from 'lucide-react';
 import LibraryModal from './components/LibraryModal';
 
 const electron = typeof window !== 'undefined' && window.require ? window.require('electron') : null;
@@ -17,15 +17,33 @@ function App() {
   const [toolMode, setToolMode] = useState('text');
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [tocOpen, setTocOpen] = useState(false);
+  const [thumbnailsOpen, setThumbnailsOpen] = useState(false);
   const [theme, setTheme] = useState('light');
-  const [pdfScale, setPdfScale] = useState('auto');
+  const [zoomMultiplier, setZoomMultiplier] = useState(1.0);
+  const [zoomMode, setZoomMode] = useState('width');
   const [isIdle, setIsIdle] = useState(false);
-  const [sidebarMinSize, setSidebarMinSize] = useState(20);
+  const sidebarMinSize = 360;
+  const [tocScrollDest, setTocScrollDest] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageNavigateDest, setPageNavigateDest] = useState(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [activeCommentHighlight, setActiveCommentHighlight] = useState(null);
+  const [settings, setSettings] = useState(() => {
+    try {
+      const saved = localStorage.getItem('books-agent-settings');
+      return saved ? JSON.parse(saved) : { uiZoom: 1.0 };
+    } catch { return { uiZoom: 1.0 }; }
+  });
+
+  const handleSettingsChange = useCallback((newSettings) => {
+    setSettings(newSettings);
+    localStorage.setItem('books-agent-settings', JSON.stringify(newSettings));
+  }, []);
   const fileInputRef = useRef(null);
-  const scrollToDestRef = useRef(null);
   const idleTimeoutRef = useRef(null);
   const isHoveringRef = useRef(false);
-  const sidebarRef = useRef(null);
+
+  const numPages = pdfDocument ? pdfDocument.numPages : 0;
 
   useEffect(() => {
     if (theme === 'dark') {
@@ -34,6 +52,13 @@ function App() {
       document.body.classList.remove('theme-dark');
     }
   }, [theme]);
+
+  useEffect(() => {
+    const webFrame = electron ? electron.webFrame : null;
+    if (webFrame && settings.uiZoom) {
+      webFrame.setZoomFactor(settings.uiZoom);
+    }
+  }, []);
 
   // Auto-hide overlay panels after 2.5s idle
   const resetIdleTimer = useCallback(() => {
@@ -51,25 +76,21 @@ function App() {
     return () => clearTimeout(idleTimeoutRef.current);
   }, [resetIdleTimer]);
 
-  // Sidebar min 320px (computed as %)
-  useEffect(() => {
-    const handleResize = () => {
-      const minPercentage = (320 / window.innerWidth) * 100;
-      setSidebarMinSize(Math.max(20, minPercentage));
-    };
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+
+  const toggleSidebar = useCallback(() => {
+    setIsSidebarOpen(prev => !prev);
   }, []);
 
   useEffect(() => {
     async function loadDefault() {
       if (!ipcRenderer) return;
       try {
-        const books = await ipcRenderer.invoke('list-books');
-        if (books.length > 0) {
-          const buffer = await ipcRenderer.invoke('read-pdf', books[0].path);
+        const books = await ipcRenderer.invoke('list-books', '');
+        const pdfFiles = books.filter(b => b.type === 'file');
+        if (pdfFiles.length > 0) {
+          const buffer = await ipcRenderer.invoke('read-pdf', pdfFiles[0].path);
           setPdfBuffer(new Uint8Array(buffer));
+          setTocScrollDest(null);
         }
       } catch (e) {
         console.error('Could not load default book:', e);
@@ -95,6 +116,8 @@ function App() {
       }
       setHighlights([]);
       setSelectedText('');
+      setTocScrollDest(null);
+      setCurrentPage(1);
     } catch (err) {
       alert('Failed to load file: ' + err.message);
     }
@@ -105,15 +128,17 @@ function App() {
     setHighlights(prev => [...prev, highlight]);
   }, []);
 
-  // Ask AI — set selected text and focus chat
+  // Ask AI — set selected text and remove the highlight
   const handleAskAI = useCallback((highlight) => {
     let text = highlight.content?.text || '';
     if (highlight.comment && highlight.comment.text) {
       text = `[Comment: ${highlight.comment.text}]\n${text}`;
     }
     setSelectedText(text);
-    // Also add as a blue highlight for visual reference
-    setHighlights(prev => [...prev, { ...highlight, color: 'blue' }]);
+    // Remove this highlight after sending to AI
+    if (highlight.id) {
+      setHighlights(prev => prev.filter(h => h.id !== highlight.id));
+    }
   }, []);
 
   // Undo highlight (Cmd+Z or Ctrl+Z)
@@ -143,40 +168,79 @@ function App() {
   }, []);
 
   const handleTocNavigate = useCallback((dest) => {
-    scrollToDestRef.current = dest;
+    setTocScrollDest({ dest, timestamp: Date.now() });
   }, []);
+
+  const handlePageNavigate = useCallback((pageNum) => {
+    setPageNavigateDest({ page: pageNum, timestamp: Date.now() });
+    setCurrentPage(pageNum);
+  }, []);
+
+  const handlePageChange = useCallback((pageNum) => {
+    setCurrentPage(pageNum);
+  }, []);
+
+  const handleHighlightClick = useCallback((highlight) => {
+    if (highlight.comment?.text) {
+      setActiveCommentHighlight(highlight);
+    }
+  }, []);
+
+  const handleAskAIFromComment = useCallback(() => {
+    if (!activeCommentHighlight) return;
+    handleAskAI(activeCommentHighlight);
+    setActiveCommentHighlight(null);
+  }, [activeCommentHighlight, handleAskAI]);
 
   const toggleTheme = useCallback(() => {
     setTheme(prev => prev === 'light' ? 'dark' : 'light');
   }, []);
 
   const handleZoomIn = useCallback(() => {
-    setPdfScale(prev => {
-      const current = prev === 'auto' || prev === 'page-width' || prev === 'page-fit' ? 1.0 : parseFloat(prev);
-      return Math.min(current + 0.25, 3.0).toString();
-    });
+    setZoomMode('width');
+    setZoomMultiplier(prev => Math.min(prev + 0.1, 3.0));
   }, []);
 
   const handleZoomOut = useCallback(() => {
-    setPdfScale(prev => {
-      const current = prev === 'auto' || prev === 'page-width' || prev === 'page-fit' ? 1.0 : parseFloat(prev);
-      return Math.max(current - 0.25, 0.5).toString();
-    });
+    setZoomMode('width');
+    setZoomMultiplier(prev => Math.max(prev - 0.1, 0.3));
   }, []);
 
   return (
-    <div className="app-container">
-      <Group orientation="horizontal">
+    <>
+      <div className="titlebar">
+        <div className="titlebar-spacer-left" />
+        <span style={{ flex: 1, textAlign: 'center' }}>Books Agent</span>
+        <div style={{ width: '70px', display: 'flex', justifyContent: 'flex-end', paddingRight: '12px', WebkitAppRegion: 'no-drag' }}>
+          <button 
+             className="button-icon" 
+             style={{ padding: '4px', opacity: isSidebarOpen ? 1 : 0.5 }} 
+             onClick={toggleSidebar}
+             title="Toggle AI Assistant"
+          >
+             <MessageSquare size={16} />
+          </button>
+        </div>
+      </div>
+      <div className="app-container">
+        <Group orientation="horizontal">
 
         <Toolbar
           toolMode={toolMode}
           setToolMode={setToolMode}
           tocOpen={tocOpen}
           setTocOpen={setTocOpen}
+          thumbnailsOpen={thumbnailsOpen}
+          setThumbnailsOpen={setThumbnailsOpen}
           pdfDocument={pdfDocument}
           onTocNavigate={handleTocNavigate}
+          onPageNavigate={handlePageNavigate}
+          currentPage={currentPage}
+          numPages={numPages}
           theme={theme}
           toggleTheme={toggleTheme}
+          settings={settings}
+          onSettingsChange={handleSettingsChange}
         />
 
         <Panel defaultSize={65} minSize={30}>
@@ -239,26 +303,53 @@ function App() {
                 </button>
                 <button
                   className="button-icon"
-                  style={{ backgroundColor: pdfScale === 'auto' ? 'var(--color-go-blue-light)' : 'transparent' }}
-                  onClick={() => setPdfScale('auto')}
-                  title="Auto Fit"
-                >
-                  <Maximize size={18} />
-                </button>
-                <button
-                  className="button-icon"
-                  style={{ backgroundColor: pdfScale === 'page-width' ? 'var(--color-go-blue-light)' : 'transparent' }}
-                  onClick={() => setPdfScale('page-width')}
+                  onClick={() => { setZoomMode('width'); setZoomMultiplier(1.0); }}
                   title="Fit to Width"
                 >
-                  <Columns size={18} />
+                  <AlignCenter size={18} />
                 </button>
                 <button className="button-icon" onClick={handleZoomIn} title="Zoom In">
                   <ZoomIn size={18} />
                 </button>
                 <div style={{ padding: '0 8px', fontSize: '13px', fontWeight: 500, minWidth: '48px', textAlign: 'center' }}>
-                  {pdfScale === 'auto' ? 'Auto' : pdfScale === 'page-width' ? 'Width' : pdfScale === 'page-fit' ? 'Page' : `${Math.round(parseFloat(pdfScale) * 100)}%`}
+                  {`${Math.round(zoomMultiplier * 100)}%`}
                 </div>
+
+                {activeCommentHighlight && (
+                  <>
+                    <div style={{ width: '1px', height: '24px', backgroundColor: 'var(--color-border)', flexShrink: 0 }} />
+                    <button
+                      onClick={handleAskAIFromComment}
+                      title={`Ask AI: ${activeCommentHighlight.comment?.text}`}
+                      style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '50%',
+                        backgroundColor: 'var(--color-go-blue)',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: 'white',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.15s ease',
+                        padding: 0,
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                        animation: 'fadeIn 0.15s ease'
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.transform = 'scale(1.15)';
+                        e.currentTarget.style.backgroundColor = 'var(--color-go-blue-hover)';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.transform = 'scale(1)';
+                        e.currentTarget.style.backgroundColor = 'var(--color-go-blue)';
+                      }}
+                    >
+                      <Bot size={16} />
+                    </button>
+                  </>
+                )}
               </div>
             )}
 
@@ -269,6 +360,8 @@ function App() {
                 setPdfBuffer(buffer);
                 setHighlights([]);
                 setSelectedText('');
+                setTocScrollDest(null);
+                setCurrentPage(1);
               }}
             />
 
@@ -282,8 +375,12 @@ function App() {
                 onClearVisualHighlight={handleClearVisualHighlight}
                 toolMode={toolMode}
                 onPdfDocumentReady={setPdfDocument}
-                scrollToDestRef={scrollToDestRef}
-                pdfScaleValue={pdfScale}
+                tocScrollDest={tocScrollDest}
+                zoomMultiplier={zoomMultiplier}
+                zoomMode={zoomMode}
+                pageNavigateDest={pageNavigateDest}
+                onPageChange={handlePageChange}
+                onHighlightClick={handleHighlightClick}
               />
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--color-text-light)' }}>
@@ -293,18 +390,30 @@ function App() {
           </div>
         </Panel>
 
-        <Separator className="resize-handle" />
-
-        <Panel defaultSize={35} minSize={sidebarMinSize}>
-          <Sidebar
-            ref={sidebarRef}
-            selectedText={selectedText}
-            onClearSelectedText={handleClearSelectedText}
-          />
-        </Panel>
+        {isSidebarOpen && (
+          <>
+            <Separator className="resize-handle" />
+            <Panel 
+              id="sidebar-panel"
+              defaultSize={sidebarMinSize} 
+              minSize={sidebarMinSize}
+              collapsible={true}
+              collapsedSize={0}
+              onCollapse={() => setIsSidebarOpen(false)}
+            >
+              <Sidebar
+                selectedText={selectedText}
+                onClearSelectedText={() => setSelectedText('')}
+                onSetSelectedText={setSelectedText}
+                settings={settings}
+              />
+            </Panel>
+          </>
+        )}
 
       </Group>
-    </div>
+      </div>
+    </>
   );
 }
 

@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
 type RouterRequest struct {
@@ -45,24 +46,23 @@ func NewRouterClient(baseURL, apiKey string, models []string) *RouterClient {
 }
 
 func (c *RouterClient) SendPrompt(ctx context.Context, prompt string) (string, error) {
-	var lastErr error
-
-	for i, model := range c.Models {
-		if i > 0 {
-			log.Printf("[FAILOVER] ⚠️ Основная модель дала сбой. Автоматически переключаюсь на резервную: %s", model)
-		}
-
-		// Вызываем внутренний метод отправки для конкретной модели
-		reply, err := c.executeRequest(ctx, prompt, model)
-		if err == nil {
-			return reply, nil
-		}
-
-		lastErr = err
-		log.Printf("[ОШИБКА КАНАЛА] Модель %s вернула ошибку: %v", model, err)
+	if len(c.Models) == 0 {
+		return "", fmt.Errorf("модель не задана")
 	}
 
-	return "", fmt.Errorf("критическая ошибка: все доступные модели в роутере вернули сбой. Последний лог: %w", lastErr)
+	// 9router handles fallback internally based on the Combo name (c.Models[0])
+	targetModel := c.Models[0]
+
+	log.Printf("[RouterClient] Запрос к роутеру: model=%s, baseURL=%s", targetModel, c.BaseURL)
+
+	reply, err := c.executeRequest(ctx, prompt, targetModel)
+	if err != nil {
+		log.Printf("[ОШИБКА 9ROUTER] Не удалось получить ответ от модели %s: %v", targetModel, err)
+		return "", fmt.Errorf("ошибка роутера (модель %s): %w", targetModel, err)
+	}
+
+	log.Printf("[RouterClient] Успешный ответ от модели %s: %d символов", targetModel, len(reply))
+	return reply, nil
 }
 
 func (c *RouterClient) executeRequest(ctx context.Context, prompt string, model string) (string, error) {
@@ -89,23 +89,29 @@ func (c *RouterClient) executeRequest(ctx context.Context, prompt string, model 
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		dump := c.createErrorDump(jsonData, nil, 0, err.Error())
+		_ = os.WriteFile("gemini_error_dump.json", dump, 0644)
 		return "", fmt.Errorf("ошибка отправки запроса через роутер: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		dump := c.createErrorDump(jsonData, nil, resp.StatusCode, err.Error())
+		_ = os.WriteFile("gemini_error_dump.json", dump, 0644)
 		return "", fmt.Errorf("не удалось прочитать поток ответа: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		_ = os.WriteFile("gemini_error_dump.json", respBody, 0644)
+		dump := c.createErrorDump(jsonData, respBody, resp.StatusCode, "")
+		_ = os.WriteFile("gemini_error_dump.json", dump, 0644)
 		return "", fmt.Errorf("роутер вернул статус-ошибку: %d. Подробности в gemini_error_dump.json", resp.StatusCode)
 	}
 
 	var routerResp RouterResponse
 	if err := json.Unmarshal(respBody, &routerResp); err != nil {
-		_ = os.WriteFile("gemini_error_dump.json", respBody, 0644)
+		dump := c.createErrorDump(jsonData, respBody, resp.StatusCode, err.Error())
+		_ = os.WriteFile("gemini_error_dump.json", dump, 0644)
 		return "", fmt.Errorf("сервер прислал ТЕКСТ вместо JSON. Содержимое: \n>>> %s\n<<<", string(respBody))
 	}
 
@@ -113,5 +119,33 @@ func (c *RouterClient) executeRequest(ctx context.Context, prompt string, model 
 		return routerResp.Choices[0].Message.Content, nil
 	}
 
-	return "", fmt.Errorf("получен пустой ответ от архитектуры роутера")
+	return "", fmt.Errorf("получен пустой ответ от архитектуры роутера (choices пустой)")
+}
+
+// createErrorDump создает детальный дамп ошибки для диагностики
+func (c *RouterClient) createErrorDump(requestBody []byte, responseBody []byte, statusCode int, errorMsg string) []byte {
+	dump := map[string]interface{}{
+		"timestamp":   time.Now().Format(time.RFC3339),
+		"baseURL":     c.BaseURL,
+		"models":      c.Models,
+		"endpoint":    "/v1/chat/completions",
+		"requestBody": json.RawMessage(requestBody),
+		"statusCode":  statusCode,
+	}
+	if responseBody != nil {
+		dump["responseBody"] = string(responseBody)
+	}
+	if errorMsg != "" {
+		dump["error"] = errorMsg
+	}
+	// Маскируем API ключ для безопасности
+	if c.APIKey != "" {
+		if len(c.APIKey) > 8 {
+			dump["apiKeyMasked"] = c.APIKey[:4] + "..." + c.APIKey[len(c.APIKey)-4:]
+		} else {
+			dump["apiKeyMasked"] = "***"
+		}
+	}
+	result, _ := json.MarshalIndent(dump, "", "    ")
+	return result
 }
