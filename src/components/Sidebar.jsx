@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, Trash2, Plus, MessageSquare, ChevronDown, Archive, Download, Loader } from 'lucide-react';
+import { Send, Bot, Trash2, Plus, MessageSquare, ChevronDown, ChevronUp, Archive, Download, Loader, Paperclip, X, Copy, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { darcula } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { sendMessage } from '../ai/agent.js';
 
 const createNewSession = () => ({
@@ -13,22 +15,113 @@ const createNewSession = () => ({
   archived: false
 });
 
-const Sidebar = React.memo(function Sidebar({ selectedText, onClearSelectedText }) {
+/* Collapsible context attachment inside a user message bubble */
+function ContextAttachment({ text }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!text) return null;
+  return (
+    <div className="context-attachment" onClick={() => setExpanded(!expanded)}>
+      <div className="context-attachment-header">
+        <Paperclip size={10} />
+        <span>Attached text</span>
+        {expanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+      </div>
+      <div className={`context-attachment-text ${expanded ? '' : 'collapsed'}`}>
+        "{text}"
+      </div>
+    </div>
+  );
+}
+
+/* Custom Code Block for Markdown */
+const CodeBlock = ({ node, inline, className, children, ...props }) => {
+  const [copied, setCopied] = useState(false);
+  const match = /language-(\w+)/.exec(className || '');
+  const language = match ? match[1] : '';
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(String(children).replace(/\n$/, ''));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (!inline && match) {
+    return (
+      <div className="code-block-container" style={{ position: 'relative', margin: '12px 0', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#2b2b2b', padding: '6px 12px', borderBottom: '1px solid #1e1e1e' }}>
+          <span style={{ color: '#a9b7c6', fontSize: '12px', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{language}</span>
+          <button 
+            onClick={handleCopy}
+            title="Copy code"
+            style={{ 
+              display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', 
+              color: copied ? '#4CAF50' : '#a9b7c6', cursor: 'pointer', fontSize: '12px', transition: 'color 0.2s', padding: '4px'
+            }}
+          >
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
+        </div>
+        <SyntaxHighlighter
+          style={darcula}
+          language={language}
+          PreTag="div"
+          customStyle={{ margin: 0, padding: '16px', fontSize: '13px', borderRadius: '0 0 8px 8px', backgroundColor: '#1e1e1e' }}
+          {...props}
+        >
+          {String(children).replace(/\n$/, '')}
+        </SyntaxHighlighter>
+      </div>
+    );
+  }
+  return (
+    <code className={className} style={{ backgroundColor: 'rgba(0,0,0,0.1)', padding: '2px 4px', borderRadius: '4px', fontFamily: 'monospace' }} {...props}>
+      {children}
+    </code>
+  );
+};
+
+const Sidebar = React.memo(function Sidebar({ selectedText, onClearSelectedText, onSetSelectedText, settings = {} }) {
+  const chatFontSize = settings.chatFontSize || 14;
   const [sessions, setSessions] = useState([createNewSession()]);
   const [activeSessionId, setActiveSessionId] = useState(sessions[0].id);
   const [question, setQuestion] = useState('');
-  const [modelType, setModelType] = useState('local');
   const [showHistory, setShowHistory] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const chatEndRef = useRef(null);
 
+  const [chatSelection, setChatSelection] = useState(null);
+
   const activeSession = sessions.find(s => s.id === activeSessionId) || sessions[0];
   const chatHistory = activeSession ? activeSession.messages : [];
-
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatHistory.length]);
+
+  // Handle text selection inside the chat for Ask AI functionality
+  useEffect(() => {
+    const handleMouseUp = () => {
+      const selection = window.getSelection();
+      const text = selection.toString().trim();
+      if (text && chatEndRef.current) {
+        // Ensure the selection is within the sidebar
+        const sidebarPane = chatEndRef.current.closest('.sidebar-pane');
+        if (sidebarPane && sidebarPane.contains(selection.anchorNode)) {
+          const range = selection.getRangeAt(0);
+          const rect = range.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            setChatSelection({ text, rect });
+            return;
+          }
+        }
+      }
+      setChatSelection(null);
+    };
+    
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => document.removeEventListener('mouseup', handleMouseUp);
+  }, []);
 
   const updateActiveSession = (updater) => {
     setSessions(prev => prev.map(s =>
@@ -39,7 +132,7 @@ const Sidebar = React.memo(function Sidebar({ selectedText, onClearSelectedText 
   const handleSend = async () => {
     if (!question.trim() || !activeSession || isLoading) return;
 
-    const userMessage = { role: 'user', text: question, context: selectedText };
+    const userMessage = { role: 'user', text: question, context: selectedText || '' };
     const currentQuestion = question;
     const currentContext = selectedText;
 
@@ -139,16 +232,20 @@ const Sidebar = React.memo(function Sidebar({ selectedText, onClearSelectedText 
           <Bot size={20} color="var(--color-go-blue)" />
           <span>AI Assistant</span>
         </div>
-        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-          <select
-            value={modelType}
-            onChange={(e) => setModelType(e.target.value)}
-            style={{ padding: '6px 10px', borderRadius: '6px', backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-text)', fontSize: '12px', fontFamily: 'inherit' }}
+        <div className="model-pills">
+          <button
+            className="model-pill disabled"
+            disabled
+            title="Local model (coming soon)"
           >
-            <option value="local">Local Model</option>
-            <option value="oauth">OAuth Model</option>
-            <option value="api">API Model</option>
-          </select>
+            Local Model
+          </button>
+          <button
+            className="model-pill active"
+            title="AI Router — active"
+          >
+            Router
+          </button>
         </div>
       </div>
 
@@ -270,28 +367,6 @@ const Sidebar = React.memo(function Sidebar({ selectedText, onClearSelectedText 
         </div>
       )}
 
-      {/* Selected Text */}
-      {selectedText ? (
-        <div style={{ padding: '12px', backgroundColor: 'var(--color-surface)', borderRadius: '8px', borderLeft: '3px solid var(--color-go-blue)', position: 'relative', flexShrink: 0 }}>
-          <button
-            className="button-icon"
-            style={{ position: 'absolute', top: '8px', right: '8px' }}
-            onClick={onClearSelectedText}
-            title="Clear Selection"
-          >
-            <Trash2 size={16} />
-          </button>
-          <p style={{ fontSize: '12px', color: 'var(--color-text-light)', marginBottom: '8px' }}>Selected text:</p>
-          <p style={{ fontSize: '14px', fontStyle: 'italic', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-            "{selectedText}"
-          </p>
-        </div>
-      ) : (
-        <div style={{ padding: '12px', backgroundColor: 'var(--color-surface)', borderRadius: '8px', borderStyle: 'dashed', borderWidth: '1px', borderColor: 'var(--color-border)', textAlign: 'center', color: 'var(--color-text-light)', fontSize: '14px', flexShrink: 0 }}>
-          No text selected. Please highlight a fragment in the book.
-        </div>
-      )}
-
       {/* Chat Messages */}
       <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', paddingRight: '4px' }}>
         {chatHistory.map((msg, i) => (
@@ -306,13 +381,21 @@ const Sidebar = React.memo(function Sidebar({ selectedText, onClearSelectedText 
             borderBottomLeftRadius: msg.role === 'assistant' ? '4px' : '12px',
           }}>
             {msg.role === 'assistant' ? (
-               <div className="markdown-body">
-                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
+               <div className="markdown-body" style={{ fontSize: `${chatFontSize}px` }}>
+                 <ReactMarkdown 
+                   remarkPlugins={[remarkGfm]}
+                   components={{
+                     code: CodeBlock
+                   }}
+                 >
                    {msg.text}
                  </ReactMarkdown>
                </div>
             ) : (
-              <p style={{ fontSize: '14px', lineHeight: '1.5' }}>{msg.text}</p>
+              <div>
+                <p style={{ fontSize: `${chatFontSize}px`, lineHeight: '1.5' }}>{msg.text}</p>
+                {msg.context && <ContextAttachment text={msg.context} />}
+              </div>
             )}
           </div>
         ))}
@@ -343,12 +426,30 @@ const Sidebar = React.memo(function Sidebar({ selectedText, onClearSelectedText 
         <div ref={chatEndRef} />
       </div>
 
+      {/* Context indicator */}
+      {selectedText && (
+        <div style={{ flexShrink: 0 }}>
+          <div className="context-indicator">
+            <Paperclip size={12} />
+            <span>{selectedText.slice(0, 60)}{selectedText.length > 60 ? '...' : ''}</span>
+            <button
+              className="button-icon"
+              style={{ padding: '2px', marginLeft: 'auto' }}
+              onClick={onClearSelectedText}
+              title="Remove attached text"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Input */}
       <div style={{ display: 'flex', gap: '8px', paddingTop: '16px', borderTop: '1px solid var(--color-border)', flexShrink: 0 }}>
         <input
           type="text"
           className="input-field"
-          placeholder="Ask about the highlight..."
+          placeholder={selectedText ? "Ask about the highlight..." : "Type a message..."}
           value={question}
           onChange={e => setQuestion(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && !isLoading && handleSend()}
@@ -366,6 +467,38 @@ const Sidebar = React.memo(function Sidebar({ selectedText, onClearSelectedText 
             : <Send size={18} />}
         </button>
       </div>
+
+      {/* Floating Ask AI Button for Chat Text Selection */}
+      {chatSelection && (
+        <div style={{
+          position: 'fixed',
+          top: Math.max(10, chatSelection.rect.top - 45),
+          left: chatSelection.rect.left + (chatSelection.rect.width / 2) - 45,
+          zIndex: 9999,
+          animation: 'fadeIn 0.15s ease'
+        }}>
+          <button
+            onClick={() => {
+              if (onSetSelectedText) {
+                onSetSelectedText(chatSelection.text);
+              }
+              window.getSelection().removeAllRanges();
+              setChatSelection(null);
+            }}
+            title="Ask AI about this"
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              padding: '6px 12px', backgroundColor: 'var(--color-go-blue)', color: 'white',
+              border: 'none', borderRadius: '6px', cursor: 'pointer',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.2)', fontSize: '13px', fontWeight: 500
+            }}
+            onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--color-go-blue-hover)'}
+            onMouseLeave={e => e.currentTarget.style.backgroundColor = 'var(--color-go-blue)'}
+          >
+            <Bot size={14} /> Ask AI
+          </button>
+        </div>
+      )}
     </div>
   );
 });

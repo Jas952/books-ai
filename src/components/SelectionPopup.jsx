@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MessageSquare } from 'lucide-react';
+import { Bot, Check } from 'lucide-react';
 
 const COLORS = [
   { name: 'yellow', hex: '#FFEB3B' },
@@ -27,7 +27,8 @@ export default function SelectionPopup({ content, onColorSelect, onAskAI, hasExi
         border: '1px solid var(--color-border)',
         boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
         zIndex: 100,
-        animation: 'fadeIn 0.15s ease'
+        animation: 'fadeIn 0.15s ease',
+        maxWidth: '300px'
       }}
     >
       {/* Action Row */}
@@ -73,55 +74,63 @@ export default function SelectionPopup({ content, onColorSelect, onAskAI, hasExi
           onClick={() => onAskAI(commentText)}
           title="Ask AI about this text"
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-            padding: '4px 10px',
-            fontSize: '12px',
-            fontWeight: 600,
+            width: '22px',
+            height: '22px',
+            borderRadius: '50%',
             backgroundColor: 'var(--color-go-blue)',
             border: 'none',
-            borderRadius: '6px',
             cursor: 'pointer',
             color: 'white',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
             transition: 'all 0.15s ease',
-            fontFamily: 'inherit',
-            whiteSpace: 'nowrap'
+            flexShrink: 0,
+            padding: 0
           }}
           onMouseEnter={e => {
+            e.currentTarget.style.transform = 'scale(1.25)';
             e.currentTarget.style.backgroundColor = 'var(--color-go-blue-hover)';
           }}
           onMouseLeave={e => {
+            e.currentTarget.style.transform = 'scale(1)';
             e.currentTarget.style.backgroundColor = 'var(--color-go-blue)';
           }}
         >
-          <MessageSquare size={13} />
-          Ask AI
+          <Bot size={13} />
         </button>
       </div>
 
-      {/* Comment Input */}
-      <input
-        type="text"
-        placeholder="Add a comment..."
-        value={commentText}
-        onChange={e => setCommentText(e.target.value)}
-        onKeyDown={e => {
-          if (e.key === 'Enter') {
-            onColorSelect('yellow', commentText); // Default to yellow on Enter
-          }
-        }}
-        style={{
-          width: '100%',
-          padding: '6px 8px',
-          border: '1px solid var(--color-border)',
-          borderRadius: '6px',
-          fontSize: '12px',
-          backgroundColor: 'var(--color-surface)',
-          color: 'var(--color-text)',
-          outline: 'none',
-        }}
-      />
+      {/* Comment Input + Save Button */}
+      <div className="comment-input-row">
+        <input
+          type="text"
+          placeholder="Add a comment..."
+          value={commentText}
+          onChange={e => setCommentText(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              onColorSelect('yellow', commentText);
+            }
+          }}
+          style={{
+            padding: '6px 8px',
+            border: '1px solid var(--color-border)',
+            borderRadius: '6px',
+            fontSize: '12px',
+            backgroundColor: 'var(--color-surface)',
+            color: 'var(--color-text)',
+            outline: 'none',
+          }}
+        />
+        <button
+          className="comment-save-btn"
+          onClick={() => onColorSelect('yellow', commentText)}
+          title="Save highlight with comment"
+        >
+          <Check size={14} />
+        </button>
+      </div>
     </div>
   );
 }

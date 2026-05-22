@@ -11,6 +11,7 @@ Desktop-приложение для чтения технических PDF-кн
 ```bash
 npm install
 npm run dev            # Vite (браузер)
+npm run dev:electron   # Electron в dev-режиме
 npm run build:mac      # Сборка DMG
 ```
 
